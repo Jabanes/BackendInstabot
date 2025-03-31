@@ -1,0 +1,18 @@
+# .gitignore
+
+# Ignore environment and credentials files
+.env
+firebase-credentials.json
+backend/firebase-credentials.json
+dummy.sqlite3
+
+# Ignore Python cache files
+__pycache__/
+**.pyc
+**.pyo
+**.pyd
+
+# Ignore model snapshot file
+models_snapshot.py
+
+.env

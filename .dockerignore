@@ -1,0 +1,20 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+env/
+venv/
+ENV/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore environment and secrets
+.env
+*.env
+*.sqlite3
+firebase-credentials.json
