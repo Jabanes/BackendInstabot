@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # ✅ Copy source code
-COPY backend/ .
+COPY . .
 
 # ✅ ✅ Debug confirmation message
 RUN echo "✅ Using UPDATED Dockerfile from project root — built on 2025-03-31"
