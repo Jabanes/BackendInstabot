@@ -916,11 +916,11 @@ class WebDriver(BaseWebDriver):
 
         Example:
         --------
-        element = driver.find_element(By.ID, 'foo')
+        element = driver.find_elements(By.ID, 'foo')
 
         Returns:
         -------
-        WebElement
+        List[WebElement]
             list of `WebElements` matching locator strategy found on the page.
         """
         by, value = self.locator_converter.convert(by, value)

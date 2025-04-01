@@ -24,15 +24,29 @@ class InstagramFollowers:
         self.found_usernames = set()
         self.success = False
 
+        environment = os.getenv("ENVIRONMENT", "local")
+        headless = os.getenv("HEADLESS", "false").lower() == "true"
+        chrome_bin_path = os.getenv("CHROME_BIN", "")
+
         options = uc.ChromeOptions()
-        options.headless = HEADLESS_MODE
+        if headless:
+            options.add_argument("--headless=new")
         options.add_argument("--disable-notifications")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
 
-        # 🔥 For debugging (optional, if you want to confirm headless mode)
-        print("🔥 Running in headless mode:", HEADLESS_MODE)
+        if environment == "production" and chrome_bin_path:
+            options.binary_location = chrome_bin_path
+        elif environment == "local":
+            # On Windows, path to Chrome
+            options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
-        # ✅ Let undetected_chromedriver use its built-in Chromium
-        self.webdriver = uc.Chrome(options=options)
+        print("🌍 ENV:", environment)
+        print("🔥 Headless mode:", headless)
+        print("🧠 Chromium binary at:", options.binary_location)
+
+        # ✅ Use version 4 syntax (no executable_path needed)
+        self.webdriver = uc.Chrome(options=options, use_subprocess=True)
 
     def open_instagram(self):
         self.webdriver.get("https://www.instagram.com/")
@@ -64,7 +78,7 @@ class InstagramFollowers:
             doc.to_dict().get("username"): doc.id for doc in docs if doc.to_dict().get("username")
         }
 
-    def scroll_and_extract(self):
+    def scroll_and_extract(self) -> bool:
         try:
             print("📜 Scrolling and extracting followers...")
             scroll_box = WebDriverWait(self.webdriver, 10).until(
@@ -86,11 +100,12 @@ class InstagramFollowers:
                 new_height = self.webdriver.execute_script("return arguments[0].scrollTop", scroll_box)
                 if new_height == last_height:
                     print("⏹️ Reached end of scroll.")
-                    break
+                    return True  # ✅ Completed successfully
                 last_height = new_height
 
         except Exception as e:
             print(f"⚠️ Error while scrolling or extracting: {str(e)}")
+            return False  # ❌ Extraction failed
 
     def save_results_to_db(self):
         if not self.found_usernames:
@@ -129,10 +144,16 @@ class InstagramFollowers:
         self.open_instagram()
         self.go_to_followers()
         self.load_existing_followers()
-        self.scroll_and_extract()
-        self.save_results_to_db()
+        scroll_success = self.scroll_and_extract()
+        if scroll_success:
+            self.save_results_to_db()
+            self.success = True
+            print("🎉 Followers extraction and sync complete.")
+        else:
+            print("❌ Aborted: followers were NOT saved.")
+
         self.webdriver.quit()
-        print("🎉 Followers extraction and sync complete.")
+       
 
 class Command(BaseCommand):
     help = "Extract followers and save them in Firestore"
