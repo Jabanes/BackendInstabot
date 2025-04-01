@@ -22,15 +22,29 @@ class InstagramFollowing:
         self.existing_following = {}
         self.success = False
 
+        environment = os.getenv("ENVIRONMENT", "local")
+        headless = os.getenv("HEADLESS", "false").lower() == "true"
+        chrome_bin_path = os.getenv("CHROME_BIN", "")
+
         options = uc.ChromeOptions()
-        options.headless = HEADLESS_MODE
+        if headless:
+            options.add_argument("--headless=new")
         options.add_argument("--disable-notifications")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
 
-        # 🔥 For debugging (optional, if you want to confirm headless mode)
-        print("🔥 Running in headless mode:", HEADLESS_MODE)
+        if environment == "production" and chrome_bin_path:
+            options.binary_location = chrome_bin_path
+        elif environment == "local":
+            # On Windows, path to Chrome
+            options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
-        # ✅ Let undetected_chromedriver use its built-in Chromium
-        self.webdriver = uc.Chrome(options=options)
+        print("🌍 ENV:", environment)
+        print("🔥 Headless mode:", headless)
+        print("🧠 Chromium binary at:", options.binary_location)
+
+        # ✅ Use version 4 syntax (no executable_path needed)
+        self.webdriver = uc.Chrome(options=options, use_subprocess=True)
 
 
     def open_instagram(self):
