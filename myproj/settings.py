@@ -17,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 import os
 from dotenv import load_dotenv
 
+
 load_dotenv()
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -65,6 +66,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:3000",
     "https://instabot-ca8d9.firebaseapp.com",
+    "chrome-extension://dcoiahgajkjopndopoaeiigpgkhcjocm",
 ]
 
 REST_FRAMEWORK = {

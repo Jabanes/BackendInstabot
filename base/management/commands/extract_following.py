@@ -15,29 +15,52 @@ load_dotenv()
 HEADLESS_MODE = os.getenv("HEADLESS", "false").lower() == "true"
 
 class InstagramFollowing:
-    def __init__(self, time_sleep: int = 10, user=None) -> None:
+    def __init__(self, time_sleep: int = 10, user=None, cookies=None, profile_url=None) -> None:
         self.time_sleep = time_sleep
         self.user = user  # Firebase UID (str)
         self.following = set()
         self.existing_following = {}
         self.success = False
+        self.cookies = cookies or []
+        self.profile_url = profile_url
+
 
         environment = os.getenv("ENVIRONMENT", "local")
         headless = os.getenv("HEADLESS", "false").lower() == "true"
         chrome_bin_path = os.getenv("CHROME_BIN", "")
 
         options = uc.ChromeOptions()
-        if headless:
-            options.add_argument("--headless=new")
-        options.add_argument("--disable-notifications")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-
+        
         if environment == "production" and chrome_bin_path:
-            options.binary_location = chrome_bin_path
+            prod_options = uc.ChromeOptions()
+            if headless:
+                prod_options.add_argument("--headless=new")
+            prod_options.add_argument("--disable-notifications")
+            prod_options.add_argument("--no-sandbox")
+            prod_options.add_argument("--disable-dev-shm-usage")
+            prod_options.binary_location = chrome_bin_path
+
+            self.webdriver = uc.Chrome(
+                options=prod_options,
+                browser_executable_path=chrome_bin_path,
+                use_subprocess=True
+            )
+
         elif environment == "local":
-            # On Windows, path to Chrome
-            options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            local_options = uc.ChromeOptions()
+            if headless:
+                local_options.add_argument("--headless=new")
+            local_options.add_argument("--disable-notifications")
+            local_options.add_argument("--no-sandbox")
+            local_options.add_argument("--disable-dev-shm-usage")
+            local_options.binary_location = chrome_path
+
+            self.webdriver = uc.Chrome(
+                options=local_options,
+                browser_executable_path=chrome_path,
+                use_subprocess=True
+            )
 
         print("🌍 ENV:", environment)
         print("🔥 Headless mode:", headless)
@@ -48,13 +71,27 @@ class InstagramFollowing:
 
 
     def open_instagram(self):
-        self.webdriver.get("https://www.instagram.com/")
-        print("🚀 Log into Instagram manually, then press ENTER here.")
-        flag_path = os.path.join(tempfile.gettempdir(), f"ig_ready_user_{self.user}.flag")
-        if os.path.exists(flag_path):
-            os.remove(flag_path)
-        while not os.path.exists(flag_path):
-            time.sleep(1)
+            print("🌐 Opening Instagram to inject cookies...")
+            self.webdriver.get("https://www.instagram.com/")  # must visit domain first
+
+            # Clear existing cookies first just to be safe
+            self.webdriver.delete_all_cookies()
+
+            # Inject cookies BEFORE navigating to profile
+            for cookie in self.cookies:
+                try:
+                    cookie.pop("sameSite", None)  # optional cleanup
+                    cookie.pop("hostOnly", None)  # not accepted by Selenium
+                    cookie["domain"] = ".instagram.com"
+                    self.webdriver.add_cookie(cookie)
+                    print(f"🍪 Injected cookie: {cookie['name']}")
+                except Exception as e:
+                    print(f"⚠️ Failed to inject cookie: {cookie.get('name')} – {e}")
+
+            # Navigate to profile page
+            print("🚀 Navigating to user profile after injecting cookies...")
+            self.webdriver.get(self.profile_url)
+            time.sleep(5)
 
     def go_to_following(self):
         try:

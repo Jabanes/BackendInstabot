@@ -18,9 +18,11 @@ HEADLESS_MODE = os.getenv("HEADLESS", "false").lower() == "true"
 
 
 class InstagramUnfollower:
-    def __init__(self, user=None, time_sleep: int = 10):
-        self.user = user  # Firebase UID (str)
+    def __init__(self, user=None, time_sleep: int = 10, cookies=None, profile_url=None):
+        self.user = user
         self.time_sleep = time_sleep
+        self.cookies = cookies or []
+        self.profile_url = profile_url
         self.success = False
         self.unfollowed = []
 
@@ -29,24 +31,41 @@ class InstagramUnfollower:
         chrome_bin_path = os.getenv("CHROME_BIN", "")
 
         options = uc.ChromeOptions()
-        if headless:
-            options.add_argument("--headless=new")
-        options.add_argument("--disable-notifications")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
 
         if environment == "production" and chrome_bin_path:
-            options.binary_location = chrome_bin_path
+            prod_options = uc.ChromeOptions()
+            if headless:
+                prod_options.add_argument("--headless=new")
+            prod_options.add_argument("--disable-notifications")
+            prod_options.add_argument("--no-sandbox")
+            prod_options.add_argument("--disable-dev-shm-usage")
+            prod_options.binary_location = chrome_bin_path
+
+            self.webdriver = uc.Chrome(
+                options=prod_options,
+                browser_executable_path=chrome_bin_path,
+                use_subprocess=True
+            )
+
         elif environment == "local":
-            # On Windows, path to Chrome
-            options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            local_options = uc.ChromeOptions()
+            if headless:
+                local_options.add_argument("--headless=new")
+            local_options.add_argument("--disable-notifications")
+            local_options.add_argument("--no-sandbox")
+            local_options.add_argument("--disable-dev-shm-usage")
+            local_options.binary_location = chrome_path
+
+            self.webdriver = uc.Chrome(
+                options=local_options,
+                browser_executable_path=chrome_path,
+                use_subprocess=True
+            )
 
         print("🌍 ENV:", environment)
         print("🔥 Headless mode:", headless)
         print("🧠 Chromium binary at:", options.binary_location)
-
-        # ✅ Use version 4 syntax (no executable_path needed)
-        self.webdriver = uc.Chrome(options=options, use_subprocess=True)
 
     def wait(self):
         time.sleep(random.uniform(2, 5))
@@ -55,15 +74,24 @@ class InstagramUnfollower:
         return [n['username'] for n in NonFollowerStore.list(self.user)]
 
     def open_instagram(self):
+        print("🌐 Opening Instagram to inject cookies...")
         self.webdriver.get("https://www.instagram.com/")
-        print("🚀 Log into Instagram manually, then press ENTER here.")
-        flag_path = os.path.join(tempfile.gettempdir(), f"ig_ready_user_{self.user}.flag")
+        self.webdriver.delete_all_cookies()
 
-        if os.path.exists(flag_path):
-            os.remove(flag_path)
+        for cookie in self.cookies:
+            try:
+                cookie.pop("sameSite", None)
+                cookie.pop("hostOnly", None)
+                cookie["domain"] = ".instagram.com"
+                self.webdriver.add_cookie(cookie)
+                print(f"🍪 Injected cookie: {cookie['name']}")
+            except Exception as e:
+                print(f"⚠️ Failed to inject cookie: {cookie.get('name')} – {e}")
 
-        while not os.path.exists(flag_path):
-            time.sleep(1)
+        print("🚀 Navigating to user profile after injecting cookies...")
+        self.webdriver.get(self.profile_url)
+        time.sleep(5)
+
 
     def unfollow_user(self, username):
         self.webdriver.get(f"https://www.instagram.com/{username}/")
