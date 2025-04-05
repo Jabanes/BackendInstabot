@@ -87,9 +87,7 @@ class InstagramFollowing:
                     print(f"🍪 Injected cookie: {cookie['name']}")
                 except Exception as e:
                     print(f"⚠️ Failed to inject cookie: {cookie.get('name')} – {e}")
-
-            # Navigate to profile page
-            print("🚀 Navigating to user profile after injecting cookies...")
+                    raise e  # <- this is key!
             self.webdriver.get(self.profile_url)
             time.sleep(5)
 
@@ -105,6 +103,7 @@ class InstagramFollowing:
             print(f"⚠️ Error clicking Following button: {str(e)}")
             self.webdriver.quit()
             exit()
+            raise e
 
     def load_existing_following(self):
         print("📥 Loading existing following from Firestore...")
@@ -154,7 +153,8 @@ class InstagramFollowing:
                 last_height = new_height
 
         except Exception as e:
-            print(f"⚠️ Error while scrolling or extracting: {str(e)}")
+            print(f"❌ Fatal error during scrolling: {str(e)}")
+            raise e  # <- this is key!
 
     def save_results_to_db(self):
         if not self.user or not self.following:
@@ -190,13 +190,19 @@ class InstagramFollowing:
         self.success = True
 
     def run(self):
-        self.open_instagram()
-        self.go_to_following()
-        self.load_existing_following()
-        self.scroll_and_extract()
-        self.save_results_to_db()
-        print("🎉 Following extraction and sync complete.")
-        self.webdriver.quit()
+        try:
+            self.open_instagram()
+            self.go_to_following()
+            self.load_existing_following()
+            self.scroll_and_extract()
+            self.save_results_to_db()
+            print("🎉 Following extraction and sync complete.")
+        except Exception as e:
+            print(f"❌ Bot failed during run(): {str(e)}")
+            self.success = False
+            raise
+        finally:
+            self.webdriver.quit()
 
 
 class Command(BaseCommand):

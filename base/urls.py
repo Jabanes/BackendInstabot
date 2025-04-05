@@ -15,5 +15,6 @@ urlpatterns = [
     path('confirm-bot-ready', confirm_bot_ready),
     path('follow-stats', get_user_follow_stats),
     path('check-data', check_new_data_flag),
+
     
 ]

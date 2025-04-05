@@ -29,43 +29,35 @@ class InstagramFollowers:
         environment = os.getenv("ENVIRONMENT", "local")
         headless = os.getenv("HEADLESS", "false").lower() == "true"
         chrome_bin_path = os.getenv("CHROME_BIN", "")
+        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
-        options = uc.ChromeOptions()
+        chrome_options = uc.ChromeOptions()
+
+        if headless:
+            chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--disable-notifications")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
 
         if environment == "production" and chrome_bin_path:
-            prod_options = uc.ChromeOptions()
-            if headless:
-                prod_options.add_argument("--headless=new")
-            prod_options.add_argument("--disable-notifications")
-            prod_options.add_argument("--no-sandbox")
-            prod_options.add_argument("--disable-dev-shm-usage")
-            prod_options.binary_location = chrome_bin_path
-
+            chrome_options.binary_location = chrome_bin_path
             self.webdriver = uc.Chrome(
-                options=prod_options,
+                options=chrome_options,
                 browser_executable_path=chrome_bin_path,
                 use_subprocess=True
             )
-
-        elif environment == "local":
-            chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-            local_options = uc.ChromeOptions()
-            if headless:
-                local_options.add_argument("--headless=new")
-            local_options.add_argument("--disable-notifications")
-            local_options.add_argument("--no-sandbox")
-            local_options.add_argument("--disable-dev-shm-usage")
-            local_options.binary_location = chrome_path
-
+        else:
+            chrome_options.binary_location = chrome_path
             self.webdriver = uc.Chrome(
-                options=local_options,
+                options=chrome_options,
                 browser_executable_path=chrome_path,
                 use_subprocess=True
             )
 
         print("🌍 ENV:", environment)
         print("🔥 Headless mode:", headless)
-        print("🧠 Chromium binary at:", options.binary_location)
+        print("🧠 Chromium binary at:", chrome_options.binary_location)
+
 
 
     def open_instagram(self):
@@ -82,10 +74,20 @@ class InstagramFollowers:
                 print(f"🍪 Injected cookie: {cookie['name']}")
             except Exception as e:
                 print(f"⚠️ Failed to inject cookie: {cookie.get('name')} – {e}")
+                raise e
 
-        print("🚀 Navigating to user profile after injecting cookies...")
         self.webdriver.get(self.profile_url)
         time.sleep(5)
+
+
+    def load_existing_followers(self):
+        print("📥 Loading existing followers from Firestore...")
+        collection_ref = db.collection("users").document(str(self.user)).collection("followers")
+        docs = collection_ref.stream()
+        self.existing_followers = {
+            doc.to_dict().get("username"): doc.id for doc in docs if doc.to_dict().get("username")
+        }
+
 
     def go_to_followers(self):
         try:
@@ -99,14 +101,7 @@ class InstagramFollowers:
             print(f"⚠️ Error clicking Followers button: {str(e)}")
             self.webdriver.quit()
             exit()
-
-    def load_existing_followers(self):
-        print("📥 Loading existing followers from Firestore...")
-        collection_ref = db.collection("users").document(str(self.user)).collection("followers")
-        docs = collection_ref.stream()
-        self.existing_followers = {
-            doc.to_dict().get("username"): doc.id for doc in docs if doc.to_dict().get("username")
-        }
+            raise e
 
     def scroll_and_extract(self) -> bool:
         try:
@@ -134,8 +129,8 @@ class InstagramFollowers:
                 last_height = new_height
 
         except Exception as e:
-            print(f"⚠️ Error while scrolling or extracting: {str(e)}")
-            return False  # ❌ Extraction failed
+            print(f"❌ Error in scroll_and_extract: {e}")
+            raise e
 
     def save_results_to_db(self):
         if not self.found_usernames:

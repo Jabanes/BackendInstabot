@@ -7,11 +7,9 @@ import tempfile
 from .management.commands.extract_followers import InstagramFollowers
 from .management.commands.extract_following import InstagramFollowing
 from .management.commands.unfollow import InstagramUnfollower
-from base.serializers import UserUpdateSerializer, MyTokenObtainPairSerializer, RegisterSerializer
 from base.firebase_stores import NonFollowerStore, FollowerStore, FollowingStore, UserScanInfoStore, UserStore
 from base.firebase import db
 from firebase_admin import auth as firebase_auth
-import firebase_admin
 from django.utils.timezone import now
 from django.core.management import call_command
 
@@ -220,7 +218,6 @@ def run_instagram_followers_script(request):
     except Exception as e:
         return Response({"error": f"Invalid token: {str(e)}"}, status=401)
 
-    # ✅ Extract cookies and profile URL from request
     cookies = request.data.get("cookies")
     profile_url = request.data.get("profile_url")
 
@@ -228,26 +225,35 @@ def run_instagram_followers_script(request):
         return Response({"error": "Missing cookies or profile URL"}, status=400)
 
     before = len(FollowerStore.list(user_id))
-    
-    # ✅ Pass cookies and profile URL to the bot
-    bot = InstagramFollowers(user=user_id, cookies=cookies, profile_url=profile_url)
-    bot.run()
-    
-    after = len(FollowerStore.list(user_id))
 
-    if bot.success:
-        UserScanInfoStore.update(user_id, last_followers_scan=now())
+    try:
+
+        bot = InstagramFollowers(user=user_id, cookies=cookies, profile_url=profile_url)
+        bot.run()
+        after = len(FollowerStore.list(user_id))
+
+        if bot.success:
+            UserScanInfoStore.update(user_id, last_followers_scan=now())
+            return Response({
+                "status": "success",
+                "Before Scan": before,
+                "After Scan": after
+            })
+
+        else:
+            return Response({
+                "status": "no_change",
+                "Before Scan": before,
+                "After Scan": after
+            })
+
+    except Exception as e:
         return Response({
-            "status": "success",
-            "before_count": before,
-            "after_count": after
+            "status": "error",
+            "message": str(e),
+            "Before Scan": before,
+            "After Scan": before  # unchanged
         })
-
-    return Response({
-        "status": "no_change",
-        "before_count": before,
-        "after_count": after
-    })
 
 
 @api_view(["POST"])
@@ -263,7 +269,6 @@ def run_unfollow_non_followers_script(request):
     except Exception as e:
         return Response({"error": f"Invalid token: {str(e)}"}, status=401)
 
-    # ✅ Extract cookies and profile URL
     cookies = request.data.get("cookies")
     profile_url = request.data.get("profile_url")
 
@@ -276,28 +281,44 @@ def run_unfollow_non_followers_script(request):
     before_following = len(list(following_ref.stream()))
 
     try:
-        # ✅ Run with cookie injection
         bot = InstagramUnfollower(user=user_id, cookies=cookies, profile_url=profile_url)
         bot.run()
 
         after_non_followers = len(list(non_followers_ref.stream()))
         after_following = len(list(following_ref.stream()))
 
-        return Response({
-            "status": "success" if after_non_followers < before_non_followers else "no_change",
-            "non_followers_before": before_non_followers,
-            "non_followers_after": after_non_followers,
-            "following_before": before_following,
-            "following_after": after_following
-        })
+        if bot.success:
+            return Response({
+                "status": "success",
+                "non_followers_before": before_non_followers,
+                "non_followers_after": after_non_followers,
+                "following_before": before_following,
+                "following_after": after_following
+            })
+        else:
+            return Response({
+                "status": "no_change",
+                "non_followers_before": before_non_followers,
+                "non_followers_after": after_non_followers,
+                "following_before": before_following,
+                "following_after": after_following
+            })
+
     except Exception as e:
-        return Response({"status": "error", "message": f"Unfollow script failed: {str(e)}"}, status=500)
+        return Response({
+            "status": "error",
+            "message": f"Unfollow script failed: {str(e)}",
+            "non_followers_before": before_non_followers,
+            "non_followers_after": before_non_followers,
+            "following_before": before_following,
+            "following_after": before_following
+        }, status=500)
+
     
 
 @api_view(["POST"])
 def run_instagram_following_script(request):
     auth_header = request.headers.get("Authorization")
-    print("🧠 Headers received:", request.headers)
     if not auth_header or not auth_header.startswith("Bearer "):
         return Response({"error": "Missing or invalid Authorization header"}, status=401)
 
@@ -312,17 +333,38 @@ def run_instagram_following_script(request):
     profile_url = request.data.get("profile_url")
 
     if not cookies or not profile_url:
-        return Response({"error": "Missing cookies or profile_url"}, status=400)
+        return Response({"error": "Missing cookies or profile URL"}, status=400)
 
     before = len(FollowingStore.list(user_id))
-    bot = InstagramFollowing(user=user_id, cookies=cookies, profile_url=profile_url)
-    bot.run()
-    after = len(FollowingStore.list(user_id))
 
-    if bot.success:
-        UserScanInfoStore.update(user_id, last_following_scan=now())
-        return Response({"status": "success", "before_count": before, "after_count": after})
-    return Response({"status": "no_change", "before_count": before, "after_count": after})
+    try:
+        bot = InstagramFollowing(user=user_id, cookies=cookies, profile_url=profile_url)
+        bot.run()
+        after = len(FollowingStore.list(user_id))
+
+        if bot.success:
+            UserScanInfoStore.update(user_id, last_following_scan=now())
+            return Response({
+                "status": "success",
+                "Before Scan": before,
+                "After Scan": after
+            })
+        else:
+            return Response({
+                "status": "no_change",
+                "Before Scan": before,
+                "After Scan": after
+            })
+
+    except Exception as e:
+        print("❌ Error running following bot:", str(e))
+        return Response({
+            "status": "error",
+            "message": str(e),
+            "Before Scan": before,
+            "After Scan": before  # unchanged
+        })
+
 
 @api_view(["POST"])
 def confirm_bot_ready(request):
@@ -361,3 +403,4 @@ def check_new_data_flag(request):
     
     flag_path = os.path.join(tempfile.gettempdir(), f"new_data_flag_user_{user_id}.flag")
     return Response({"new_data": os.path.exists(flag_path)})
+
