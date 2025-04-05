@@ -64,24 +64,19 @@ class InstagramUnfollower:
         return [n['username'] for n in NonFollowerStore.list(self.user)]
 
     def open_instagram(self):
-        print("🌐 Opening Instagram to inject cookies...")
-        self.webdriver.get("https://www.instagram.com/")
-        self.webdriver.delete_all_cookies()
-
-        for cookie in self.cookies:
-            try:
+        try:
+            self.webdriver.get("https://www.instagram.com/")
+            self.webdriver.delete_all_cookies()
+            for cookie in self.cookies:
                 cookie.pop("sameSite", None)
                 cookie.pop("hostOnly", None)
                 cookie["domain"] = ".instagram.com"
                 self.webdriver.add_cookie(cookie)
-                print(f"🍪 Injected cookie: {cookie['name']}")
-            except Exception as e:
-                print(f"⚠️ Failed to inject cookie: {cookie.get('name')} – {e}")
-                raise e
-
-        print("🚀 Navigating to user profile after injecting cookies...")
-        self.webdriver.get(self.profile_url)
-        time.sleep(5)
+            self.webdriver.get(self.profile_url)
+            time.sleep(5)
+        except Exception as e:
+            print(f"❌ open_instagram failed: {e}")
+            raise e
 
     def unfollow_user(self, username):
         try:
@@ -127,22 +122,31 @@ class InstagramUnfollower:
     def run(self):
         try:
             self.open_instagram()
-            usernames = self.load_non_followers()
 
+            usernames = self.load_non_followers()
             if not usernames:
                 print("⚠️ No non-followers found. Exiting.")
+                self.success = False
                 return
 
             for username in usernames:
-                if self.unfollow_user(username):
-                    self.unfollowed.append(username)
+                try:
+                    if self.unfollow_user(username):
+                        self.unfollowed.append(username)
+                except Exception as e:
+                    print(f"⚠️ Error unfollowing {username}: {e}")
+                    continue  # Move to next user instead of breaking the loop
 
             self.save_results_to_db()
 
         except Exception as e:
             print(f"❌ Unfollow bot error: {e}")
             self.success = False
-            raise
+            raise  # Make sure the view catches it and responds with error
 
         finally:
-            self.webdriver.quit()
+            try:
+                self.webdriver.quit()
+            except Exception as e:
+                print(f"⚠️ Failed to quit webdriver: {e}")
+

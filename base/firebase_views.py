@@ -12,6 +12,8 @@ from base.firebase import db
 from firebase_admin import auth as firebase_auth
 from django.utils.timezone import now
 from django.core.management import call_command
+from socket import error as SocketError
+import errno
 
 @api_view(['POST'])
 def login(request):
@@ -225,35 +227,46 @@ def run_instagram_followers_script(request):
         return Response({"error": "Missing cookies or profile URL"}, status=400)
 
     before = len(FollowerStore.list(user_id))
+    after = before
+    status = "no_change"
+    message = None
 
     try:
-
         bot = InstagramFollowers(user=user_id, cookies=cookies, profile_url=profile_url)
         bot.run()
         after = len(FollowerStore.list(user_id))
 
         if bot.success:
             UserScanInfoStore.update(user_id, last_followers_scan=now())
-            return Response({
-                "status": "success",
-                "Before Scan": before,
-                "After Scan": after
-            })
-
+            status = "success"
         else:
-            return Response({
-                "status": "no_change",
-                "Before Scan": before,
-                "After Scan": after
-            })
+            status = "no_change"
+
+    except (BrokenPipeError, SocketError) as e:
+        if isinstance(e, BrokenPipeError) or (
+            isinstance(e, SocketError) and getattr(e, 'errno', None) == errno.EPIPE
+        ):
+            print("❌ Broken pipe detected during following script:", str(e))
+            status = "error"
+            message = "Broken pipe: Client disconnected unexpectedly."
+        else:
+            print("❌ following script socket error:", str(e))
+            status = "error"
+            message = str(e)
 
     except Exception as e:
+        print("❌ Followers script error:", str(e))
+        status = "error"
+        message = str(e)
+
+    finally:
         return Response({
-            "status": "error",
-            "message": str(e),
+            "status": status,
             "Before Scan": before,
-            "After Scan": before  # unchanged
+            "After Scan": after,
+            **({"message": message} if message else {})
         })
+
 
 
 @api_view(["POST"])
@@ -277,42 +290,57 @@ def run_unfollow_non_followers_script(request):
 
     non_followers_ref = db.collection("users").document(user_id).collection("non_followers")
     following_ref = db.collection("users").document(user_id).collection("followings")
-    before_non_followers = len(list(non_followers_ref.stream()))
+
+    before_nf = len(list(non_followers_ref.stream()))
     before_following = len(list(following_ref.stream()))
+    after_nf = before_nf
+    after_following = before_following
+    status = "no_change"
+    message = None
 
     try:
         bot = InstagramUnfollower(user=user_id, cookies=cookies, profile_url=profile_url)
         bot.run()
 
-        after_non_followers = len(list(non_followers_ref.stream()))
+        after_nf = len(list(non_followers_ref.stream()))
         after_following = len(list(following_ref.stream()))
 
         if bot.success:
-            return Response({
-                "status": "success",
-                "non_followers_before": before_non_followers,
-                "non_followers_after": after_non_followers,
-                "following_before": before_following,
-                "following_after": after_following
-            })
+            status = "success"
         else:
-            return Response({
-                "status": "no_change",
-                "non_followers_before": before_non_followers,
-                "non_followers_after": after_non_followers,
-                "following_before": before_following,
-                "following_after": after_following
-            })
+            status = "no_change"
+
+
+    except (BrokenPipeError, SocketError) as e:
+        if isinstance(e, BrokenPipeError) or (
+            isinstance(e, SocketError) and getattr(e, 'errno', None) == errno.EPIPE
+        ):
+            print("❌ Broken pipe detected during unfollow script:", str(e))
+            status = "error"
+            message = "Broken pipe: Client disconnected unexpectedly."
+        else:
+            print("❌ Unfollow script socket error:", str(e))
+            status = "error"
+            message = str(e)
 
     except Exception as e:
-        return Response({
-            "status": "error",
-            "message": f"Unfollow script failed: {str(e)}",
-            "non_followers_before": before_non_followers,
-            "non_followers_after": before_non_followers,
+        print("❌ Unfollow bot crashed:", str(e))
+        status = "error"
+        message = str(e)
+
+    finally:
+        response = {
+            "status": status,
+            "non_followers_before": before_nf,
+            "non_followers_after": after_nf,
             "following_before": before_following,
-            "following_after": before_following
-        }, status=500)
+            "following_after": after_following
+        }
+        if message:
+            response["message"] = message
+
+        return Response(response)
+
 
     
 
@@ -336,6 +364,9 @@ def run_instagram_following_script(request):
         return Response({"error": "Missing cookies or profile URL"}, status=400)
 
     before = len(FollowingStore.list(user_id))
+    after = before
+    status = "no_change"
+    message = None
 
     try:
         bot = InstagramFollowing(user=user_id, cookies=cookies, profile_url=profile_url)
@@ -344,49 +375,35 @@ def run_instagram_following_script(request):
 
         if bot.success:
             UserScanInfoStore.update(user_id, last_following_scan=now())
-            return Response({
-                "status": "success",
-                "Before Scan": before,
-                "After Scan": after
-            })
+            status = "success"
         else:
-            return Response({
-                "status": "no_change",
-                "Before Scan": before,
-                "After Scan": after
-            })
+            status = "no_change"
+
+    except (BrokenPipeError, SocketError) as e:
+        if isinstance(e, BrokenPipeError) or (
+            isinstance(e, SocketError) and getattr(e, 'errno', None) == errno.EPIPE
+        ):
+            print("❌ Broken pipe detected during following scan:", str(e))
+            status = "error"
+            message = "Broken pipe: Client disconnected unexpectedly."
+        else:
+            print("❌ Following script socket error:", str(e))
+            status = "error"
+            message = str(e)
 
     except Exception as e:
-        print("❌ Error running following bot:", str(e))
+        print("❌ Following script error:", str(e))
+        status = "error"
+        message = str(e)
+
+    finally:
         return Response({
-            "status": "error",
-            "message": str(e),
+            "status": status,
             "Before Scan": before,
-            "After Scan": before  # unchanged
+            "After Scan": after,
+            **({"message": message} if message else {})
         })
 
-
-@api_view(["POST"])
-def confirm_bot_ready(request):
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return Response({"error": "Missing or invalid Authorization header"}, status=401)
-
-    id_token = auth_header.split("Bearer ")[1]
-    try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
-        user_id = decoded_token["uid"]
-    except Exception as e:
-        return Response({"error": f"Invalid token: {str(e)}"}, status=401)
-    
-    flag_path = os.path.join(tempfile.gettempdir(), f"ig_ready_user_{user_id}.flag")
-    try:
-        with open(flag_path, "w") as f:
-            f.write("ready")
-        return Response({"status": "success", "message": "Bot confirmed ready."})
-    except Exception as e:
-        return Response({"status": "error", "message": str(e)}, status=500)
-    
 
 @api_view(["GET"])
 def check_new_data_flag(request):

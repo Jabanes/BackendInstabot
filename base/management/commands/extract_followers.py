@@ -61,23 +61,19 @@ class InstagramFollowers:
 
 
     def open_instagram(self):
-        print("🌐 Opening Instagram to inject cookies...")
-        self.webdriver.get("https://www.instagram.com/")
-        self.webdriver.delete_all_cookies()
-
-        for cookie in self.cookies:
-            try:
+        try:
+            self.webdriver.get("https://www.instagram.com/")
+            self.webdriver.delete_all_cookies()
+            for cookie in self.cookies:
                 cookie.pop("sameSite", None)
                 cookie.pop("hostOnly", None)
                 cookie["domain"] = ".instagram.com"
                 self.webdriver.add_cookie(cookie)
-                print(f"🍪 Injected cookie: {cookie['name']}")
-            except Exception as e:
-                print(f"⚠️ Failed to inject cookie: {cookie.get('name')} – {e}")
-                raise e
-
-        self.webdriver.get(self.profile_url)
-        time.sleep(5)
+            self.webdriver.get(self.profile_url)
+            time.sleep(5)
+        except Exception as e:
+            print(f"❌ open_instagram failed: {e}")
+            raise e
 
 
     def load_existing_followers(self):
@@ -112,6 +108,7 @@ class InstagramFollowers:
             last_height = 0
 
             while True:
+                print("🔄 Scrolling...")
                 elements = scroll_box.find_elements(
                     By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
                 )
@@ -125,8 +122,10 @@ class InstagramFollowers:
                 new_height = self.webdriver.execute_script("return arguments[0].scrollTop", scroll_box)
                 if new_height == last_height:
                     print("⏹️ Reached end of scroll.")
-                    return True  # ✅ Completed successfully
+                    break
                 last_height = new_height
+
+            return True  # ✅ Completed successfully      
 
         except Exception as e:
             print(f"❌ Error in scroll_and_extract: {e}")
@@ -166,19 +165,31 @@ class InstagramFollowers:
         self.success = True
 
     def run(self):
-        self.open_instagram()
-        self.go_to_followers()
-        self.load_existing_followers()
-        scroll_success = self.scroll_and_extract()
-        if scroll_success:
-            self.save_results_to_db()
-            self.success = True
-            print("🎉 Followers extraction and sync complete.")
-        else:
-            print("❌ Aborted: followers were NOT saved.")
+        try:
+            self.open_instagram()
+            self.go_to_followers()
+            self.load_existing_followers()
 
-        self.webdriver.quit()
-       
+            scroll_success = self.scroll_and_extract()
+            if scroll_success:
+                self.save_results_to_db()
+                self.success = True
+                print("🎉 Followers extraction and sync complete.")
+            else:
+                print("❌ Aborted: followers were NOT saved.")
+                self.success = False
+
+        except Exception as e:
+            print(f"❌ Followers bot error: {str(e)}")
+            self.success = False
+            raise
+
+        finally:
+            try:
+                self.webdriver.quit()
+            except Exception as e:
+                print(f"⚠️ Failed to quit webdriver: {e}")
+
 
 class Command(BaseCommand):
     help = "Extract followers and save them in Firestore"

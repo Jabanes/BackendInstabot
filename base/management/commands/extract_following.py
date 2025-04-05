@@ -71,25 +71,19 @@ class InstagramFollowing:
 
 
     def open_instagram(self):
-            print("🌐 Opening Instagram to inject cookies...")
-            self.webdriver.get("https://www.instagram.com/")  # must visit domain first
-
-            # Clear existing cookies first just to be safe
+        try:
+            self.webdriver.get("https://www.instagram.com/")
             self.webdriver.delete_all_cookies()
-
-            # Inject cookies BEFORE navigating to profile
             for cookie in self.cookies:
-                try:
-                    cookie.pop("sameSite", None)  # optional cleanup
-                    cookie.pop("hostOnly", None)  # not accepted by Selenium
-                    cookie["domain"] = ".instagram.com"
-                    self.webdriver.add_cookie(cookie)
-                    print(f"🍪 Injected cookie: {cookie['name']}")
-                except Exception as e:
-                    print(f"⚠️ Failed to inject cookie: {cookie.get('name')} – {e}")
-                    raise e  # <- this is key!
+                cookie.pop("sameSite", None)
+                cookie.pop("hostOnly", None)
+                cookie["domain"] = ".instagram.com"
+                self.webdriver.add_cookie(cookie)
             self.webdriver.get(self.profile_url)
             time.sleep(5)
+        except Exception as e:
+            print(f"❌ open_instagram failed: {e}")
+            raise e
 
     def go_to_following(self):
         try:
@@ -152,6 +146,8 @@ class InstagramFollowing:
                     break
                 last_height = new_height
 
+            return True  # ✅ Completed successfully
+        
         except Exception as e:
             print(f"❌ Fatal error during scrolling: {str(e)}")
             raise e  # <- this is key!
@@ -194,15 +190,26 @@ class InstagramFollowing:
             self.open_instagram()
             self.go_to_following()
             self.load_existing_following()
-            self.scroll_and_extract()
-            self.save_results_to_db()
-            print("🎉 Following extraction and sync complete.")
+
+            scroll_success = self.scroll_and_extract()
+            if scroll_success:
+                self.save_results_to_db()
+                self.success = True
+                print("🎉 Following extraction and sync complete.")
+            else:
+                print("❌ Scrolling failed — aborting save.")
+                self.success = False
+
         except Exception as e:
             print(f"❌ Bot failed during run(): {str(e)}")
             self.success = False
             raise
+
         finally:
-            self.webdriver.quit()
+            try:
+                self.webdriver.quit()
+            except Exception as e:
+                print(f"⚠️ Failed to quit webdriver: {e}")
 
 
 class Command(BaseCommand):
