@@ -1,7 +1,7 @@
 from .firebase import db
 from firebase_admin import firestore
 from datetime import datetime
-
+from typing import Optional
 
 class UserStore:
     @staticmethod
@@ -148,3 +148,15 @@ class UserScanInfoStore:
         if doc.exists:
             return doc.to_dict().get("scan_info", {})
         return {}
+
+class BotStatusStore:
+    @staticmethod
+    def set_running(user_id: str, running: bool):
+        status_ref = db.collection("users").document(user_id).collection("status").document("bot")
+        status_ref.set({"is_running": running}, merge=True)
+
+    @staticmethod
+    def get_status(user_id: str) -> Optional[bool]:
+        status_ref = db.collection("users").document(user_id).collection("status").document("bot")
+        doc = status_ref.get()
+        return doc.to_dict().get("is_running") if doc.exists else False

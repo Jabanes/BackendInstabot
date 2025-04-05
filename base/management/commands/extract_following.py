@@ -7,7 +7,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import os
-import tempfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,46 +27,34 @@ class InstagramFollowing:
         environment = os.getenv("ENVIRONMENT", "local")
         headless = os.getenv("HEADLESS", "false").lower() == "true"
         chrome_bin_path = os.getenv("CHROME_BIN", "")
+        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
-        options = uc.ChromeOptions()
-        
+        chrome_options = uc.ChromeOptions()
+
+        if headless:
+            chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--disable-notifications")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        # Decide which binary path to use
         if environment == "production" and chrome_bin_path:
-            prod_options = uc.ChromeOptions()
-            if headless:
-                prod_options.add_argument("--headless=new")
-            prod_options.add_argument("--disable-notifications")
-            prod_options.add_argument("--no-sandbox")
-            prod_options.add_argument("--disable-dev-shm-usage")
-            prod_options.binary_location = chrome_bin_path
+            chrome_options.binary_location = chrome_bin_path
+            browser_path = chrome_bin_path
+        else:
+            chrome_options.binary_location = chrome_path
+            browser_path = chrome_path
 
-            self.webdriver = uc.Chrome(
-                options=prod_options,
-                browser_executable_path=chrome_bin_path,
-                use_subprocess=True
-            )
-
-        elif environment == "local":
-            chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-            local_options = uc.ChromeOptions()
-            if headless:
-                local_options.add_argument("--headless=new")
-            local_options.add_argument("--disable-notifications")
-            local_options.add_argument("--no-sandbox")
-            local_options.add_argument("--disable-dev-shm-usage")
-            local_options.binary_location = chrome_path
-
-            self.webdriver = uc.Chrome(
-                options=local_options,
-                browser_executable_path=chrome_path,
-                use_subprocess=True
-            )
+        # ✅ Instantiate webdriver only ONCE
+        self.webdriver = uc.Chrome(
+            options=chrome_options,
+            browser_executable_path=browser_path,
+            use_subprocess=True
+        )
 
         print("🌍 ENV:", environment)
         print("🔥 Headless mode:", headless)
-        print("🧠 Chromium binary at:", options.binary_location)
-
-        # ✅ Use version 4 syntax (no executable_path needed)
-        self.webdriver = uc.Chrome(options=options, use_subprocess=True)
+        print("🧠 Chromium binary at:", chrome_options.binary_location)
 
 
     def open_instagram(self):

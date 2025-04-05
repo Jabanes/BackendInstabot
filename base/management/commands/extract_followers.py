@@ -8,13 +8,14 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import os
-import tempfile
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Support for headless control from .env
 HEADLESS_MODE = os.getenv("HEADLESS", "false").lower() == "true"
+
+from pathlib import Path
 
 class InstagramFollowers:
     def __init__(self, time_sleep: int = 10, user=None, cookies=None, profile_url=None) -> None:
@@ -39,24 +40,25 @@ class InstagramFollowers:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
 
+        # Decide which binary path to use
         if environment == "production" and chrome_bin_path:
             chrome_options.binary_location = chrome_bin_path
-            self.webdriver = uc.Chrome(
-                options=chrome_options,
-                browser_executable_path=chrome_bin_path,
-                use_subprocess=True
-            )
+            browser_path = chrome_bin_path
         else:
             chrome_options.binary_location = chrome_path
-            self.webdriver = uc.Chrome(
-                options=chrome_options,
-                browser_executable_path=chrome_path,
-                use_subprocess=True
-            )
+            browser_path = chrome_path
+
+        # ✅ Instantiate webdriver only ONCE
+        self.webdriver = uc.Chrome(
+            options=chrome_options,
+            browser_executable_path=browser_path,
+            use_subprocess=True
+        )
 
         print("🌍 ENV:", environment)
         print("🔥 Headless mode:", headless)
         print("🧠 Chromium binary at:", chrome_options.binary_location)
+
 
 
 

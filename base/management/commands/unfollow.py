@@ -32,26 +32,27 @@ class InstagramUnfollower:
         chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
         chrome_options = uc.ChromeOptions()
+
         if headless:
             chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
 
+        # Decide which binary path to use
         if environment == "production" and chrome_bin_path:
             chrome_options.binary_location = chrome_bin_path
-            self.webdriver = uc.Chrome(
-                options=chrome_options,
-                browser_executable_path=chrome_bin_path,
-                use_subprocess=True
-            )
+            browser_path = chrome_bin_path
         else:
             chrome_options.binary_location = chrome_path
-            self.webdriver = uc.Chrome(
-                options=chrome_options,
-                browser_executable_path=chrome_path,
-                use_subprocess=True
-            )
+            browser_path = chrome_path
+
+        # ✅ Instantiate webdriver only ONCE
+        self.webdriver = uc.Chrome(
+            options=chrome_options,
+            browser_executable_path=browser_path,
+            use_subprocess=True
+        )
 
         print("🌍 ENV:", environment)
         print("🔥 Headless mode:", headless)

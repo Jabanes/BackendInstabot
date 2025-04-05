@@ -7,7 +7,7 @@ import tempfile
 from .management.commands.extract_followers import InstagramFollowers
 from .management.commands.extract_following import InstagramFollowing
 from .management.commands.unfollow import InstagramUnfollower
-from base.firebase_stores import NonFollowerStore, FollowerStore, FollowingStore, UserScanInfoStore, UserStore
+from base.firebase_stores import NonFollowerStore, FollowerStore, FollowingStore, UserScanInfoStore, UserStore, BotStatusStore
 from base.firebase import db
 from firebase_admin import auth as firebase_auth
 from django.utils.timezone import now
@@ -230,7 +230,7 @@ def run_instagram_followers_script(request):
     after = before
     status = "no_change"
     message = None
-
+    BotStatusStore.set_running(user_id, True)
     try:
         bot = InstagramFollowers(user=user_id, cookies=cookies, profile_url=profile_url)
         bot.run()
@@ -260,6 +260,7 @@ def run_instagram_followers_script(request):
         message = str(e)
 
     finally:
+        BotStatusStore.set_running(user_id, False)
         return Response({
             "status": status,
             "Before Scan": before,
@@ -298,6 +299,8 @@ def run_unfollow_non_followers_script(request):
     status = "no_change"
     message = None
 
+    BotStatusStore.set_running(user_id, True)
+
     try:
         bot = InstagramUnfollower(user=user_id, cookies=cookies, profile_url=profile_url)
         bot.run()
@@ -329,6 +332,7 @@ def run_unfollow_non_followers_script(request):
         message = str(e)
 
     finally:
+        BotStatusStore.set_running(user_id, False)
         response = {
             "status": status,
             "non_followers_before": before_nf,
@@ -368,6 +372,8 @@ def run_instagram_following_script(request):
     status = "no_change"
     message = None
 
+    BotStatusStore.set_running(user_id, True)
+    
     try:
         bot = InstagramFollowing(user=user_id, cookies=cookies, profile_url=profile_url)
         bot.run()
@@ -397,6 +403,7 @@ def run_instagram_following_script(request):
         message = str(e)
 
     finally:
+        BotStatusStore.set_running(user_id, False)
         return Response({
             "status": status,
             "Before Scan": before,
@@ -421,3 +428,26 @@ def check_new_data_flag(request):
     flag_path = os.path.join(tempfile.gettempdir(), f"new_data_flag_user_{user_id}.flag")
     return Response({"new_data": os.path.exists(flag_path)})
 
+
+@api_view(["GET"])
+def check_bot_status(request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return Response({"error": "Missing or invalid Authorization header"}, status=401)
+
+    id_token = auth_header.split("Bearer ")[1]
+
+    try:
+        decoded_token = firebase_auth.verify_id_token(id_token)
+        user_id = decoded_token["uid"]
+    except Exception as e:
+        return Response({"error": f"Invalid token: {str(e)}"}, status=401)
+
+    try:
+        user_doc = db.collection("users").document(user_id).get()
+        user_data = user_doc.to_dict() or {}
+        is_running = user_data.get("bot", {}).get("isRunning", False)
+
+        return Response({"is_running": is_running})
+    except Exception as e:
+        return Response({"error": f"Failed to retrieve bot status: {str(e)}"}, status=500)

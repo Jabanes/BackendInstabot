@@ -1,5 +1,5 @@
 from django.urls import path
-from .firebase_views import check_new_data_flag, generateNonFollowersList, get_non_followers, get_user_follow_stats, login, run_instagram_followers_script, run_unfollow_non_followers_script, update_non_followers_list, update_profile, run_instagram_following_script
+from .firebase_views import check_new_data_flag, generateNonFollowersList, get_non_followers, get_user_follow_stats, login, run_instagram_followers_script, run_unfollow_non_followers_script, update_non_followers_list, update_profile, run_instagram_following_script, check_bot_status
 
 from . import firebase_views
 urlpatterns = [
@@ -14,6 +14,5 @@ urlpatterns = [
     path('unfollow', run_unfollow_non_followers_script, name='run_unfollow_non_followers'),
     path('follow-stats', get_user_follow_stats),
     path('check-data', check_new_data_flag),
-
-    
+    path("check-bot-status", check_bot_status),
 ]
