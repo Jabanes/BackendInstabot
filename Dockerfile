@@ -15,6 +15,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     chromium \
     chromium-driver \
+    wget \
+    unzip \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
