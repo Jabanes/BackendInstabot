@@ -32,9 +32,11 @@ class InstagramFollowing:
 
         if HEADLESS_MODE:
             chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--disable-notifications")
+        chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-software-rasterizer")
+        chrome_options.add_argument("--window-size=1920,1080")
 
         # Decide which binary path to use
         if environment == "production" and chrome_bin_path:
