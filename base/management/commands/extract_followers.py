@@ -41,7 +41,11 @@ class InstagramFollowers:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--window-size=1280,800") 
+        chrome_options.add_argument("--single-process")
+        chrome_options.add_argument("--remote-debugging-pipe")
+        chrome_options.add_argument("--blink-settings=imagesEnabled=false") 
 
         # Decide which binary path to use
         if environment == "production" and chrome_bin_path:
@@ -116,7 +120,7 @@ class InstagramFollowers:
                 )
 
                 for i in range(len(elements)):
-                    retry_attempts = 3
+                    retry_attempts = 5
                     while retry_attempts > 0:
                         try:
                             el = elements[i]
@@ -130,7 +134,7 @@ class InstagramFollowers:
                                 By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
                             )
                             retry_attempts -= 1
-                            time.sleep(0.5)
+                            time.sleep(1.5)
 
                 self.webdriver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_box)
                 time.sleep(5)

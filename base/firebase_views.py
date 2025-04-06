@@ -15,6 +15,7 @@ from threading import Thread
 from django.core.management import call_command
 from socket import error as SocketError
 import errno
+import threading
 
 @api_view(['POST'])
 def login(request):
@@ -231,6 +232,7 @@ def run_instagram_followers_script(request):
     BotStatusStore.set_running(user_id, True)
 
     def run_bot_async():
+        threading.current_thread().name = "selenium-bot-thread"
         try:
             print("🔥 run_bot_async STARTED", flush=True)
             count_before = len(FollowerStore.list(user_id))
