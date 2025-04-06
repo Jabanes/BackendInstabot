@@ -10,6 +10,7 @@ import time
 import os
 from dotenv import load_dotenv
 import sys
+from selenium.common.exceptions import StaleElementReferenceException
 
 load_dotenv()
 
@@ -109,13 +110,27 @@ class InstagramFollowers:
             while True:
                 print("🔄 Scrolling...", flush=True)
                 sys.stdout.flush()
+                
                 elements = scroll_box.find_elements(
                     By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
                 )
-                for el in elements:
-                    username = el.text.strip()
-                    if username:
-                        self.found_usernames.add(username)
+
+                for i in range(len(elements)):
+                    retry_attempts = 3
+                    while retry_attempts > 0:
+                        try:
+                            el = elements[i]
+                            username = el.text.strip()
+                            if username:
+                                self.found_usernames.add(username)
+                            break  # ✅ Exit retry loop if successful
+                        except StaleElementReferenceException:
+                            print(f"♻️ Retrying stale element (index {i})...", flush=True)
+                            elements = scroll_box.find_elements(
+                                By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
+                            )
+                            retry_attempts -= 1
+                            time.sleep(0.5)
 
                 self.webdriver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_box)
                 time.sleep(5)
@@ -125,7 +140,7 @@ class InstagramFollowers:
                     break
                 last_height = new_height
 
-            return True  # ✅ Completed successfully      
+            return True
 
         except Exception as e:
             print(f"❌ Error in scroll_and_extract: {e}", flush=True)
