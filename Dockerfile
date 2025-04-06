@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     chromium \
     chromium-driver \
     wget \
+    curl \
     unzip \
     fonts-liberation \
     libappindicator3-1 \
@@ -36,6 +37,9 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy project files
 COPY . .
+
+# Run collectstatic if using Django static files
+# RUN python manage.py collectstatic --noinput
 
 # Expose port (Railway will automatically bind to this)
 EXPOSE 8000
