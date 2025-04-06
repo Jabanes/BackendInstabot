@@ -27,13 +27,12 @@ class InstagramUnfollower:
         self.unfollowed = []
 
         environment = os.getenv("ENVIRONMENT", "local")
-        headless = os.getenv("HEADLESS", "false").lower() == "true"
         chrome_bin_path = os.getenv("CHROME_BIN", "")
         chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
         chrome_options = uc.ChromeOptions()
 
-        if headless:
+        if HEADLESS_MODE:
             chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--no-sandbox")
@@ -55,7 +54,7 @@ class InstagramUnfollower:
         )
 
         print("🌍 ENV:", environment)
-        print("🔥 Headless mode:", headless)
+        print("🔥 Headless mode:", HEADLESS_MODE)
         print("🧠 Chromium binary at:", chrome_options.binary_location)
 
     def wait(self):

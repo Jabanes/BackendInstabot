@@ -160,3 +160,10 @@ class BotStatusStore:
         status_ref = db.collection("users").document(user_id).collection("status").document("bot")
         doc = status_ref.get()
         return doc.to_dict().get("is_running") if doc.exists else False
+
+    @staticmethod
+    def set_status(user_id, status_data: dict):
+        db.collection("users").document(user_id).collection("status").document("bot").set(
+            status_data,
+            merge=True
+        )

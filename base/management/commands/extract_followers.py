@@ -9,6 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import os
 from dotenv import load_dotenv
+import sys
 
 load_dotenv()
 
@@ -28,13 +29,12 @@ class InstagramFollowers:
         self.success = False
 
         environment = os.getenv("ENVIRONMENT", "local")
-        headless = os.getenv("HEADLESS", "false").lower() == "true"
         chrome_bin_path = os.getenv("CHROME_BIN", "")
         chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
         chrome_options = uc.ChromeOptions()
 
-        if headless:
+        if HEADLESS_MODE:
             chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--no-sandbox")
@@ -55,12 +55,9 @@ class InstagramFollowers:
             use_subprocess=True
         )
 
-        print("🌍 ENV:", environment)
-        print("🔥 Headless mode:", headless)
-        print("🧠 Chromium binary at:", chrome_options.binary_location)
-
-
-
+        print("🌍 ENV:", environment, flush=True)
+        print("🔥 Headless mode:", HEADLESS_MODE, flush=True)
+        print("🧠 Chromium binary at:", chrome_options.binary_location, flush=True)
 
     def open_instagram(self):
         try:
@@ -74,43 +71,42 @@ class InstagramFollowers:
             self.webdriver.get(self.profile_url)
             time.sleep(5)
         except Exception as e:
-            print(f"❌ open_instagram failed: {e}")
+            print(f"❌ open_instagram failed: {e}", flush=True)
             raise e
 
-
     def load_existing_followers(self):
-        print("📥 Loading existing followers from Firestore...")
+        print("📥 Loading existing followers from Firestore...", flush=True)
         collection_ref = db.collection("users").document(str(self.user)).collection("followers")
         docs = collection_ref.stream()
         self.existing_followers = {
             doc.to_dict().get("username"): doc.id for doc in docs if doc.to_dict().get("username")
         }
 
-
     def go_to_followers(self):
         try:
-            print("🔍 Finding Followers button...")
+            print("🔍 Finding Followers button...", flush=True)
             followers_button = WebDriverWait(self.webdriver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/followers/')]"))
             )
             followers_button.click()
             time.sleep(5)
         except Exception as e:
-            print(f"⚠️ Error clicking Followers button: {str(e)}")
+            print(f"⚠️ Error clicking Followers button: {str(e)}", flush=True)
             self.webdriver.quit()
             exit()
             raise e
 
     def scroll_and_extract(self) -> bool:
         try:
-            print("📜 Scrolling and extracting followers...")
+            print("📜 Scrolling and extracting followers...", flush=True)
             scroll_box = WebDriverWait(self.webdriver, 10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "xyi19xy"))
             )
             last_height = 0
 
             while True:
-                print("🔄 Scrolling...")
+                print("🔄 Scrolling...", flush=True)
+                sys.stdout.flush()
                 elements = scroll_box.find_elements(
                     By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
                 )
@@ -123,22 +119,22 @@ class InstagramFollowers:
                 time.sleep(5)
                 new_height = self.webdriver.execute_script("return arguments[0].scrollTop", scroll_box)
                 if new_height == last_height:
-                    print("⏹️ Reached end of scroll.")
+                    print("⏹️ Reached end of scroll.", flush=True)
                     break
                 last_height = new_height
 
             return True  # ✅ Completed successfully      
 
         except Exception as e:
-            print(f"❌ Error in scroll_and_extract: {e}")
+            print(f"❌ Error in scroll_and_extract: {e}", flush=True)
             raise e
 
     def save_results_to_db(self):
         if not self.found_usernames:
-            print("❌ No followers extracted.")
+            print("❌ No followers extracted.", flush=True)
             return
 
-        print("📦 Saving results to Firestore...")
+        print("📦 Saving results to Firestore...", flush=True)
         collection_ref = db.collection("users").document(str(self.user)).collection("followers")
 
         before_set = set(self.existing_followers.keys())
@@ -147,23 +143,25 @@ class InstagramFollowers:
         to_add = after_set - before_set
         to_remove = before_set - after_set
 
-        print(f"➕ To Add: {to_add}\n➖ To Remove: {to_remove}")
+        print(f"➕ To Add: {to_add}\n➖ To Remove: {to_remove}", flush=True)
 
         batch = db.batch()
 
         for username in to_add:
             doc_ref = collection_ref.document()
             batch.set(doc_ref, {"username": username})
-            print(f"✅ Queued to add: {username}")
+            print(f"✅ Queued to add: {username}", flush=True)
+            sys.stdout.flush()
 
         for username in to_remove:
             doc_id = self.existing_followers[username]
             doc_ref = collection_ref.document(doc_id)
             batch.delete(doc_ref)
-            print(f"❌ Queued to remove: {username}")
+            print(f"❌ Queued to remove: {username}", flush=True)
+            sys.stdout.flush()
 
         batch.commit()
-        print("🎯 Batch update complete.")
+        print("🎯 Batch update complete.", flush=True)
         self.success = True
 
     def run(self):
@@ -176,13 +174,13 @@ class InstagramFollowers:
             if scroll_success:
                 self.save_results_to_db()
                 self.success = True
-                print("🎉 Followers extraction and sync complete.")
+                print("🎉 Followers extraction and sync complete.", flush=True)
             else:
-                print("❌ Aborted: followers were NOT saved.")
+                print("❌ Aborted: followers were NOT saved.", flush=True)
                 self.success = False
 
         except Exception as e:
-            print(f"❌ Followers bot error: {str(e)}")
+            print(f"❌ Followers bot error: {str(e)}", flush=True)
             self.success = False
             raise
 
@@ -190,7 +188,7 @@ class InstagramFollowers:
             try:
                 self.webdriver.quit()
             except Exception as e:
-                print(f"⚠️ Failed to quit webdriver: {e}")
+                print(f"⚠️ Failed to quit webdriver: {e}", flush=True)
 
 
 class Command(BaseCommand):

@@ -9,8 +9,9 @@ from .management.commands.extract_following import InstagramFollowing
 from .management.commands.unfollow import InstagramUnfollower
 from base.firebase_stores import NonFollowerStore, FollowerStore, FollowingStore, UserScanInfoStore, UserStore, BotStatusStore
 from base.firebase import db
-from firebase_admin import auth as firebase_auth
+from firebase_admin import auth as firebase_auth, firestore
 from django.utils.timezone import now
+from threading import Thread
 from django.core.management import call_command
 from socket import error as SocketError
 import errno
@@ -226,48 +227,52 @@ def run_instagram_followers_script(request):
     if not cookies or not profile_url:
         return Response({"error": "Missing cookies or profile URL"}, status=400)
 
-    before = len(FollowerStore.list(user_id))
-    after = before
-    status = "no_change"
-    message = None
     BotStatusStore.set_running(user_id, True)
-    try:
-        bot = InstagramFollowers(user=user_id, cookies=cookies, profile_url=profile_url)
-        bot.run()
-        after = len(FollowerStore.list(user_id))
 
-        if bot.success:
-            UserScanInfoStore.update(user_id, last_followers_scan=now())
-            status = "success"
-        else:
-            status = "no_change"
+    def run_bot_async():
+        try:
+            count_before = len(FollowerStore.list(user_id))
+            bot = InstagramFollowers(user=user_id, cookies=cookies, profile_url=profile_url)
+            bot.run()
+            count_after = len(FollowerStore.list(user_id))
 
-    except (BrokenPipeError, SocketError) as e:
-        if isinstance(e, BrokenPipeError) or (
-            isinstance(e, SocketError) and getattr(e, 'errno', None) == errno.EPIPE
-        ):
-            print("❌ Broken pipe detected during following script:", str(e))
-            status = "error"
-            message = "Broken pipe: Client disconnected unexpectedly."
-        else:
-            print("❌ following script socket error:", str(e))
-            status = "error"
-            message = str(e)
+            if bot.success:
+                UserScanInfoStore.update(user_id, last_followers_scan=now())
+                BotStatusStore.set_status(user_id, {
+                    "type": "followers",
+                    "status": "success",
+                    "count_before": count_before,
+                    "count_after": count_after,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "message": None
+                })
+            else:
+                BotStatusStore.set_status(user_id, {
+                    "type": "followers",
+                    "status": "no_change",
+                    "count_before": count_before,
+                    "count_after": count_after,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "message": "No new followers found."
+                })
 
-    except Exception as e:
-        print("❌ Followers script error:", str(e))
-        status = "error"
-        message = str(e)
+        except Exception as e:
+            print("❌ Bot crashed:", str(e))
+            BotStatusStore.set_status(user_id, {
+                "type": "followers",
+                "status": "error",
+                "count_before": None,
+                "count_after": None,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "message": str(e)
+            })
+        finally:
+            BotStatusStore.set_running(user_id, False)
 
-    finally:
-        BotStatusStore.set_running(user_id, False)
-        return Response({
-            "status": status,
-            "Before Scan": before,
-            "After Scan": after,
-            **({"message": message} if message else {})
-        })
+    Thread(target=run_bot_async).start()
 
+    # ✅ Respond immediately
+    return Response({"status": "Bot started"})
 
 
 @api_view(["POST"])
@@ -289,64 +294,67 @@ def run_unfollow_non_followers_script(request):
     if not cookies or not profile_url:
         return Response({"error": "Missing cookies or profile URL"}, status=400)
 
-    non_followers_ref = db.collection("users").document(user_id).collection("non_followers")
-    following_ref = db.collection("users").document(user_id).collection("followings")
-
-    before_nf = len(list(non_followers_ref.stream()))
-    before_following = len(list(following_ref.stream()))
-    after_nf = before_nf
-    after_following = before_following
-    status = "no_change"
-    message = None
-
     BotStatusStore.set_running(user_id, True)
 
-    try:
-        bot = InstagramUnfollower(user=user_id, cookies=cookies, profile_url=profile_url)
-        bot.run()
+    def run_bot_async():
+        try:
+            before_nf = len(list(db.collection("users").document(user_id).collection("non_followers").stream()))
+            before_following = len(list(db.collection("users").document(user_id).collection("followings").stream()))
 
-        after_nf = len(list(non_followers_ref.stream()))
-        after_following = len(list(following_ref.stream()))
+            bot = InstagramUnfollower(user=user_id, cookies=cookies, profile_url=profile_url)
+            bot.run()
 
-        if bot.success:
-            status = "success"
-        else:
-            status = "no_change"
+            after_nf = len(list(db.collection("users").document(user_id).collection("non_followers").stream()))
+            after_following = len(list(db.collection("users").document(user_id).collection("followings").stream()))
 
+            if bot.success:
+                BotStatusStore.set_status(user_id, {
+                    "type": "unfollow",
+                    "status": "success",
+                    "non_followers_before": before_nf,
+                    "non_followers_after": after_nf,
+                    "following_before": before_following,
+                    "following_after": after_following,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "message": None
+                })
+            else:
+                BotStatusStore.set_status(user_id, {
+                    "type": "unfollow",
+                    "status": "no_change",
+                    "non_followers_before": before_nf,
+                    "non_followers_after": after_nf,
+                    "following_before": before_following,
+                    "following_after": after_following,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "message": "No changes made."
+                })
 
-    except (BrokenPipeError, SocketError) as e:
-        if isinstance(e, BrokenPipeError) or (
-            isinstance(e, SocketError) and getattr(e, 'errno', None) == errno.EPIPE
-        ):
-            print("❌ Broken pipe detected during unfollow script:", str(e))
-            status = "error"
-            message = "Broken pipe: Client disconnected unexpectedly."
-        else:
-            print("❌ Unfollow script socket error:", str(e))
-            status = "error"
-            message = str(e)
+        except Exception as e:
+            print("❌ Unfollow bot crashed:", str(e))
+            BotStatusStore.set_status(user_id, {
+                "type": "unfollow",
+                "status": "error",
+                "non_followers_before": None,
+                "non_followers_after": None,
+                "following_before": None,
+                "following_after": None,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "message": str(e)
+            })
+        finally:
+            BotStatusStore.set_running(user_id, False)
 
-    except Exception as e:
-        print("❌ Unfollow bot crashed:", str(e))
-        status = "error"
-        message = str(e)
+    Thread(target=run_bot_async).start()
 
-    finally:
-        BotStatusStore.set_running(user_id, False)
-        response = {
-            "status": status,
-            "non_followers_before": before_nf,
-            "non_followers_after": after_nf,
-            "following_before": before_following,
-            "following_after": after_following
-        }
-        if message:
-            response["message"] = message
+    # ✅ Respond immediately
+     # ✅ Respond immediately with the initial counts
+    return Response({
+        "status": "Bot started",
+        "non_followers_before": len(list(db.collection("users").document(user_id).collection("non_followers").stream())),
+        "following_before": len(list(db.collection("users").document(user_id).collection("followings").stream()))
+    })
 
-        return Response(response)
-
-
-    
 
 @api_view(["POST"])
 def run_instagram_following_script(request):
@@ -367,49 +375,54 @@ def run_instagram_following_script(request):
     if not cookies or not profile_url:
         return Response({"error": "Missing cookies or profile URL"}, status=400)
 
-    before = len(FollowingStore.list(user_id))
-    after = before
-    status = "no_change"
-    message = None
-
     BotStatusStore.set_running(user_id, True)
-    
-    try:
-        bot = InstagramFollowing(user=user_id, cookies=cookies, profile_url=profile_url)
-        bot.run()
-        after = len(FollowingStore.list(user_id))
 
-        if bot.success:
-            UserScanInfoStore.update(user_id, last_following_scan=now())
-            status = "success"
-        else:
-            status = "no_change"
+    def run_bot_async():
+        try:
+            before = len(FollowingStore.list(user_id))
 
-    except (BrokenPipeError, SocketError) as e:
-        if isinstance(e, BrokenPipeError) or (
-            isinstance(e, SocketError) and getattr(e, 'errno', None) == errno.EPIPE
-        ):
-            print("❌ Broken pipe detected during following scan:", str(e))
-            status = "error"
-            message = "Broken pipe: Client disconnected unexpectedly."
-        else:
-            print("❌ Following script socket error:", str(e))
-            status = "error"
-            message = str(e)
+            bot = InstagramFollowing(user=user_id, cookies=cookies, profile_url=profile_url)
+            bot.run()
 
-    except Exception as e:
-        print("❌ Following script error:", str(e))
-        status = "error"
-        message = str(e)
+            after = len(FollowingStore.list(user_id))
 
-    finally:
-        BotStatusStore.set_running(user_id, False)
-        return Response({
-            "status": status,
-            "Before Scan": before,
-            "After Scan": after,
-            **({"message": message} if message else {})
-        })
+            if bot.success:
+                UserScanInfoStore.update(user_id, last_following_scan=now())
+                BotStatusStore.set_status(user_id, {
+                    "type": "following",
+                    "status": "success",
+                    "count_before": before,
+                    "count_after": after,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "message": None
+                })
+            else:
+                BotStatusStore.set_status(user_id, {
+                    "type": "following",
+                    "status": "no_change",
+                    "count_before": before,
+                    "count_after": after,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "message": "No new followings found."
+                })
+
+        except Exception as e:
+            print("❌ Following bot crashed:", str(e))
+            BotStatusStore.set_status(user_id, {
+                "type": "following",
+                "status": "error",
+                "count_before": None,
+                "count_after": None,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "message": str(e)
+            })
+        finally:
+            BotStatusStore.set_running(user_id, False)
+
+    Thread(target=run_bot_async).start()
+
+    # ✅ Respond immediately
+    return Response({"status": "Bot started"})
 
 
 @api_view(["GET"])
@@ -429,6 +442,8 @@ def check_new_data_flag(request):
     return Response({"new_data": os.path.exists(flag_path)})
 
 
+from datetime import datetime
+
 @api_view(["GET"])
 def check_bot_status(request):
     auth_header = request.headers.get("Authorization")
@@ -444,10 +459,51 @@ def check_bot_status(request):
         return Response({"error": f"Invalid token: {str(e)}"}, status=401)
 
     try:
-        user_doc = db.collection("users").document(user_id).get()
-        user_data = user_doc.to_dict() or {}
-        is_running = user_data.get("bot", {}).get("isRunning", False)
+        doc_ref = db.collection("users").document(user_id).collection("status").document("bot")
+        doc = doc_ref.get()
 
-        return Response({"is_running": is_running})
+        if not doc.exists:
+            return Response({
+                "is_running": False,
+                "status": None,
+                "count_before": None,
+                "count_after": None,
+                "non_followers_before": None,
+                "non_followers_after": None,
+                "following_before": None,
+                "following_after": None,
+                "message": "No bot status found.",
+                "type": None,
+                "timestamp": None
+            })
+
+        data = doc.to_dict()
+        is_running = data.get("is_running", False)
+
+        if is_running:
+            # ✅ Only return 'is_running' if it's still running
+            return Response({ "is_running": True })
+
+        # ✅ If done, return full status
+        timestamp_raw = data.get("timestamp")
+        if isinstance(timestamp_raw, datetime):
+            timestamp = timestamp_raw.strftime("%d:%m:%y")
+        else:
+            timestamp = None
+
+        return Response({
+            "is_running": False,
+            "status": data.get("status"),
+            "count_before": data.get("count_before"),
+            "count_after": data.get("count_after") or data.get("count"),
+            "non_followers_before": data.get("non_followers_before"),
+            "non_followers_after": data.get("non_followers_after"),
+            "following_before": data.get("following_before"),
+            "following_after": data.get("following_after"),
+            "message": data.get("message"),
+            "type": data.get("type"),
+            "timestamp": timestamp
+        })
+
     except Exception as e:
         return Response({"error": f"Failed to retrieve bot status: {str(e)}"}, status=500)
