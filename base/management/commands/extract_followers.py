@@ -44,7 +44,7 @@ class InstagramFollowers:
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--window-size=1280,800") 
         chrome_options.add_argument("--single-process")
-        chrome_options.add_argument("--remote-debugging-pipe")
+        chrome_options.add_argument("--remote-debugging-port=9222")
         chrome_options.add_argument("--blink-settings=imagesEnabled=false") 
 
         # Decide which binary path to use
