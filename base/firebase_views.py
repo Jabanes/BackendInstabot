@@ -210,6 +210,7 @@ def update_profile(request):
 
 @api_view(["POST"])
 def run_instagram_followers_script(request):
+    print("🔥 run_instagram_followers_script triggered")
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return Response({"error": "Missing or invalid Authorization header"}, status=401)
@@ -231,6 +232,7 @@ def run_instagram_followers_script(request):
 
     def run_bot_async():
         try:
+            print("🔥 run_bot_async STARTED", flush=True)
             count_before = len(FollowerStore.list(user_id))
             bot = InstagramFollowers(user=user_id, cookies=cookies, profile_url=profile_url)
             bot.run()
@@ -358,6 +360,7 @@ def run_unfollow_non_followers_script(request):
 
 @api_view(["POST"])
 def run_instagram_following_script(request):
+    print("🔥 run_instagram_following_script triggered")
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return Response({"error": "Missing or invalid Authorization header"}, status=401)
@@ -379,6 +382,7 @@ def run_instagram_following_script(request):
 
     def run_bot_async():
         try:
+            print("🔥 run_bot_async STARTED", flush=True)
             before = len(FollowingStore.list(user_id))
 
             bot = InstagramFollowing(user=user_id, cookies=cookies, profile_url=profile_url)
