@@ -132,17 +132,21 @@ class InstagramUnfollower:
             for username in usernames:
                 try:
                     if self.unfollow_user(username):
-                        self.unfollowed.append(username)
+                        NonFollowerStore.delete(self.user, username)
+                        FollowingStore.delete(self.user, username)
+                        print(f"🗑️ Removed {username} from Firestore.")
+                        print(f"✅ Unfollowed {username} successfully.\n")
+                        self.success = True  # at least one success
+                    else:
+                        print(f"⚠️ Skipped {username} due to unfollow failure.\n")
                 except Exception as e:
                     print(f"⚠️ Error unfollowing {username}: {e}")
-                    continue  # Move to next user instead of breaking the loop
-
-            self.save_results_to_db()
+                    continue  # move to next user
 
         except Exception as e:
             print(f"❌ Unfollow bot error: {e}")
             self.success = False
-            raise  # Make sure the view catches it and responds with error
+            raise  # Ensure view knows it failed
 
         finally:
             try:

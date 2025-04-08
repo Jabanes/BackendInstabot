@@ -7,6 +7,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import os
+from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,6 +24,7 @@ class InstagramFollowing:
         self.success = False
         self.cookies = cookies or []
         self.profile_url = profile_url
+        self.seen_usernames_all = set()
 
 
         environment = os.getenv("ENVIRONMENT", "local")
@@ -84,7 +87,6 @@ class InstagramFollowing:
         except Exception as e:
             print(f"⚠️ Error clicking Following button: {str(e)}")
             self.webdriver.quit()
-            exit()
             raise e
 
     def load_existing_following(self):
@@ -97,17 +99,21 @@ class InstagramFollowing:
 
     def scroll_and_extract(self):
         try:
-            print("📜 Scrolling and extracting ONLY valid Following users...")
+            print("📜 Scrolling and extracting following...", flush=True)
             scroll_box = WebDriverWait(self.webdriver, 10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "xyi19xy"))
             )
-            last_height = 0
+            last_height = self.webdriver.execute_script("return arguments[0].scrollHeight", scroll_box)
+            seen_usernames = set()
+            scroll_attempts = 0
 
             while True:
+                time.sleep(2)
                 user_blocks = scroll_box.find_elements(
                     By.XPATH,
                     ".//div[contains(@class, 'x1yztbdb') or contains(@class, 'x1qjc9v5')]"
                 )
+                current_chunk = set()
 
                 for block in user_blocks:
                     try:
@@ -115,63 +121,76 @@ class InstagramFollowing:
                             By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
                         )
                         button_elem = block.find_element(
-                            By.XPATH, ".//div[@class='_ap3a _aaco _aacw _aad6 _aade' and text()='Following']"
+                            By.XPATH, ".//div[text()='Following']"
                         )
 
                         if username_elem and button_elem:
                             username = username_elem.text.strip()
-                            if username:
-                                self.following.add(username)
-                    except Exception:
+                            if username and username not in seen_usernames:
+                                current_chunk.add(username)
+                                seen_usernames.add(username)
+                                self.seen_usernames_all.add(username)
+                    except (StaleElementReferenceException, NoSuchElementException):
                         continue
 
+                if current_chunk:
+                    self.process_chunk(current_chunk)
+
                 self.webdriver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_box)
-                time.sleep(5)
-                new_height = self.webdriver.execute_script("return arguments[0].scrollTop", scroll_box)
+                time.sleep(2)
 
+                new_height = self.webdriver.execute_script("return arguments[0].scrollHeight", scroll_box)
                 if new_height == last_height:
-                    print("⏹️ Reached end of scroll.")
-                    break
-                last_height = new_height
+                    scroll_attempts += 1
+                    if scroll_attempts > 2:
+                        print("⏹️ Reached end of scroll.", flush=True)
+                        break
+                else:
+                    scroll_attempts = 0
+                    last_height = new_height
 
-            return True  # ✅ Completed successfully
-        
+            return True
+
         except Exception as e:
-            print(f"❌ Fatal error during scrolling: {str(e)}")
-            raise e  # <- this is key!
+            print(f"❌ Error in scroll_and_extract: {e}", flush=True)
+            raise e
 
-    def save_results_to_db(self):
-        if not self.user or not self.following:
-            print(f"❌ No following extracted for {self.user}.")
+
+    def process_chunk(self, chunk):
+        collection_ref = db.collection("users").document(str(self.user)).collection("followings")
+        new_users = chunk - set(self.existing_following.keys())
+        if not new_users:
             return
 
-        print(f"📦 Saving results to Firestore for {self.user}...")
-        collection_ref = db.collection("users").document(str(self.user)).collection("followings")
-
-        before_set = set(self.existing_following.keys())
-        after_set = self.following
-
-        to_add = after_set - before_set
-        to_remove = before_set - after_set
-
-        print(f"➕ To Add: {to_add}\n➖ To Remove: {to_remove}")
-
+        print(f"📦 Saving {len(new_users)} new following...", flush=True)
         batch = db.batch()
-
-        for username in to_add:
+        for username in new_users:
             doc_ref = collection_ref.document()
             batch.set(doc_ref, {"username": username})
-            print(f"✅ Queued to add: {username}")
-
-        for username in to_remove:
-            doc_id = self.existing_following[username]
-            doc_ref = collection_ref.document(doc_id)
-            batch.delete(doc_ref)
-            print(f"❌ Queued to remove: {username}")
-
+            print(f"✅ Queued to add: {username}", flush=True)
+            self.existing_following[username] = doc_ref.id
         batch.commit()
-        print("🎯 Batch update complete.")
-        self.success = True
+        print("📬 Chunk committed to Firestore.", flush=True)
+
+
+    def save_removed_users_to_db(self):
+        collection_ref = db.collection("users").document(str(self.user)).collection("followings")
+        to_remove = set(self.existing_following.keys()) - self.seen_usernames_all
+        if not to_remove:
+            print("✅ No following to remove.", flush=True)
+            return
+
+        print(f"➖ To Remove: {to_remove}", flush=True)
+        batch = db.batch()
+        for username in to_remove:
+            doc_id = self.existing_following.get(username)
+            if doc_id:
+                doc_ref = collection_ref.document(doc_id)
+                batch.delete(doc_ref)
+                print(f"❌ Queued to remove: {username}", flush=True)
+        batch.commit()
+        print("🎯 Removed unfollowed users from Firestore.", flush=True)
+
 
     def run(self):
         try:
@@ -181,7 +200,7 @@ class InstagramFollowing:
 
             scroll_success = self.scroll_and_extract()
             if scroll_success:
-                self.save_results_to_db()
+                self.save_removed_users_to_db()
                 self.success = True
                 print("🎉 Following extraction and sync complete.")
             else:

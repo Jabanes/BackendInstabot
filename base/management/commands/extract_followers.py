@@ -28,6 +28,8 @@ class InstagramFollowers:
         self.existing_followers = {}
         self.found_usernames = set()
         self.success = False
+        self.seen_usernames_all = set()  # 🧠 For deletion tracking
+
 
         environment = os.getenv("ENVIRONMENT", "local")
         chrome_bin_path = os.getenv("CHROME_BIN", "")
@@ -43,9 +45,21 @@ class InstagramFollowers:
         chrome_options.add_argument("--disable-software-rasterizer")
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--window-size=1280,800") 
-        chrome_options.add_argument("--single-process")
+        # chrome_options.add_argument("--single-process")
         chrome_options.add_argument("--remote-debugging-port=9222")
         chrome_options.add_argument("--blink-settings=imagesEnabled=false") 
+        chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-client-side-phishing-detection")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-sync")
+        chrome_options.add_argument("--metrics-recording-only")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--disable-hang-monitor")
+        chrome_options.add_argument("--disable-popup-blocking")
+        chrome_options.add_argument("--disable-prompt-on-repost")
+
+
 
         # Decide which binary path to use
         if environment == "production" and chrome_bin_path:
@@ -100,7 +114,6 @@ class InstagramFollowers:
         except Exception as e:
             print(f"⚠️ Error clicking Followers button: {str(e)}", flush=True)
             self.webdriver.quit()
-            exit()
             raise e
 
     def scroll_and_extract(self) -> bool:
@@ -109,40 +122,51 @@ class InstagramFollowers:
             scroll_box = WebDriverWait(self.webdriver, 10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "xyi19xy"))
             )
-            last_height = 0
+
+            last_height = self.webdriver.execute_script("return arguments[0].scrollHeight", scroll_box)
+            seen_usernames = set()
+            scroll_attempts = 0
 
             while True:
-                print("🔄 Scrolling...", flush=True)
-                sys.stdout.flush()
-                
+                time.sleep(2)
                 elements = scroll_box.find_elements(
                     By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
                 )
+                current_chunk = set()
 
                 for i in range(len(elements)):
-                    retry_attempts = 5
+                    retry_attempts = 2
                     while retry_attempts > 0:
                         try:
                             el = elements[i]
                             username = el.text.strip()
-                            if username:
-                                self.found_usernames.add(username)
-                            break  # ✅ Exit retry loop if successful
+                            if username and username not in seen_usernames:
+                                current_chunk.add(username)
+                                seen_usernames.add(username)
+                                self.seen_usernames_all.add(username)
+                            break
                         except StaleElementReferenceException:
-                            print(f"♻️ Retrying stale element (index {i})...", flush=True)
                             elements = scroll_box.find_elements(
                                 By.XPATH, ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
                             )
                             retry_attempts -= 1
-                            time.sleep(1.5)
+                            time.sleep(1)
+
+                if current_chunk:
+                    self.process_chunk(current_chunk)
 
                 self.webdriver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_box)
-                time.sleep(5)
-                new_height = self.webdriver.execute_script("return arguments[0].scrollTop", scroll_box)
+                time.sleep(2)
+
+                new_height = self.webdriver.execute_script("return arguments[0].scrollHeight", scroll_box)
                 if new_height == last_height:
-                    print("⏹️ Reached end of scroll.", flush=True)
-                    break
-                last_height = new_height
+                    scroll_attempts += 1
+                    if scroll_attempts > 2:
+                        print("⏹️ Reached end of scroll.", flush=True)
+                        break
+                else:
+                    scroll_attempts = 0
+                    last_height = new_height
 
             return True
 
@@ -150,40 +174,48 @@ class InstagramFollowers:
             print(f"❌ Error in scroll_and_extract: {e}", flush=True)
             raise e
 
-    def save_results_to_db(self):
-        if not self.found_usernames:
-            print("❌ No followers extracted.", flush=True)
+
+
+    def process_chunk(self, chunk):
+        collection_ref = db.collection("users").document(str(self.user)).collection("followers")
+        new_users = chunk - set(self.existing_followers.keys())
+
+        if not new_users:
             return
 
-        print("📦 Saving results to Firestore...", flush=True)
-        collection_ref = db.collection("users").document(str(self.user)).collection("followers")
-
-        before_set = set(self.existing_followers.keys())
-        after_set = self.found_usernames
-
-        to_add = after_set - before_set
-        to_remove = before_set - after_set
-
-        print(f"➕ To Add: {to_add}\n➖ To Remove: {to_remove}", flush=True)
-
+        print(f"📦 Saving {len(new_users)} new followers...", flush=True)
         batch = db.batch()
-
-        for username in to_add:
+        for username in new_users:
             doc_ref = collection_ref.document()
             batch.set(doc_ref, {"username": username})
             print(f"✅ Queued to add: {username}", flush=True)
-            sys.stdout.flush()
-
-        for username in to_remove:
-            doc_id = self.existing_followers[username]
-            doc_ref = collection_ref.document(doc_id)
-            batch.delete(doc_ref)
-            print(f"❌ Queued to remove: {username}", flush=True)
-            sys.stdout.flush()
+            self.existing_followers[username] = doc_ref.id  # Add to local cache
 
         batch.commit()
-        print("🎯 Batch update complete.", flush=True)
-        self.success = True
+        print("📬 Chunk committed to Firestore.", flush=True)
+
+
+    def save_removed_users_to_db(self):
+        collection_ref = db.collection("users").document(str(self.user)).collection("followers")
+        to_remove = set(self.existing_followers.keys()) - self.seen_usernames_all
+
+        if not to_remove:
+            print("✅ No followers to remove.", flush=True)
+            return
+
+        print(f"➖ To Remove: {to_remove}", flush=True)
+        batch = db.batch()
+
+        for username in to_remove:
+            doc_id = self.existing_followers.get(username)
+            if doc_id:
+                doc_ref = collection_ref.document(doc_id)
+                batch.delete(doc_ref)
+                print(f"❌ Queued to remove: {username}", flush=True)
+
+        batch.commit()
+        print("🎯 Removed unfollowed users from Firestore.", flush=True)
+        
 
     def run(self):
         try:
@@ -193,7 +225,7 @@ class InstagramFollowers:
 
             scroll_success = self.scroll_and_extract()
             if scroll_success:
-                self.save_results_to_db()
+                self.save_removed_users_to_db()
                 self.success = True
                 print("🎉 Followers extraction and sync complete.", flush=True)
             else:
