@@ -32,7 +32,10 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN apt-get update && \
+    apt-get install -y python3-dev build-essential && \
+    pip install --upgrade pip setuptools wheel && \
+    pip install -r requirements.txt
 
 
 # Install Chromium v135 to match ChromeDriver 135
@@ -52,4 +55,4 @@ COPY . .
 EXPOSE 8000
 
 # Your existing CMD – DO NOT CHANGE
-CMD ["gunicorn", "myproj.wsgi:application", "--bind", "0.0.0.0:8000", "--log-level=debug", "--capture-output"]
+CMD ["gunicorn", "myproj.wsgi:application", "--bind", "0.0.0.0:8000", "--log-level=info", "--capture-output"]
